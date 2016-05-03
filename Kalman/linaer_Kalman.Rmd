@@ -1,0 +1,197 @@
+# Implements a linear Kalman filter.
+
+$$ x_{t+1} = Ax_t + \epsilon_t $$ $$ y_t = x_t H + \nu_t $$ $$ \epsilon ~ N(0,Q)
+$$ $$ \nu ~ N(0,R) $$
+
+## Staionery
+
+$$ x_{t+1} = t + \epsilon_t$$ $$ y_t = x_t + \nu_t $$
+
+
+```{r} 
+Kal = list(A = matrix(1,1,1), B = matrix(0,1,1), H = matrix(1,1,1), x_hat
+= matrix(3,1,1), P_hat = matrix(1,1,1), Q = matrix(0.00001,1,1), R =
+matrix(0.1,1,1))
+```
+
+Kalman interativ procedyre: One step
+
+```{r} 
+step = function(Kal,measured, control_vector=0){
+  with(Kal,{ 
+   #-----------------Prediction step----------------------------- 
+    predicted_state_estimate = A %*% x_hat + B %*% control_vector 
+    predicted_prob_estimate = (A %*% P_hat) %*% t(A) + Q 
+    #-------------------Observation step--------------------------- 
+    innovation = measured - H %*% predicted_state_estimate 
+    innovation_covariance = H %*% predicted_prob_estimate%*%t(H) + R
+    #-------------------Update step------------------------------- 
+    kalman_gain = predicted_prob_estimate %*% t(H) %*% solve(innovation_covariance) 
+    current_state_estimate = predicted_state_estimate + kalman_gain %*% innovation
+    current_prob_estimate = (diag(1,1)-kalman_gain %*% H) %*% predicted_prob_estimate
+    Kal$x_hat = current_state_estimate 
+    Kal$P_hat = current_prob_estimate 
+    return(Kal) 
+  }) 
+}
+```
+
+Simulation of voltage mesurement
+
+```{r} 
+getVoltage = function() rnorm(1,mean=1.25,sd=0.25) 
+```
+
+
+simulat 60 time step of mesurement and prediction
+```{r} 
+
+n=60
+
+dat = data.frame(messuredvotage=rep(NA,n),kalman=rep(NA,n))
+for (i in 1:n){ 
+  measured = getVoltage() 
+  dat[i,] = c(matrix(measured,1,1),Kal$x_hat) 
+  Kal = step(Kal,measured) 
+} 
+```
+
+Plot the out put
+
+```{r} 
+plot(dat$kalman, type='l', ylim = range(c(dat$kalman,dat$messuredvotage)), col='blue', lwd=2) 
+points(dat$messuredvotage,col='red') 
+abline(h=1.25, col='green') 
+```
+
+
+## Time varing regresion
+
+
+```{r, echo=FALSE} 
+t=0:200 
+a = 1 - t/100 
+x=t %% 12 + t/100 + rnorm(length(t),sd = 0.5) 
+y= (x + rnorm(length(x),sd=0.2))*a/5 
+
+```
+
+We have a timevaring x value (a value we know/control)
+
+```{r} 
+plot(t,x,type='l') 
+```
+
+and a y that somhow depend on x
+
+```{r} 
+plot(t,y,type='l')
+
+``` 
+There is a coreelation between x and y:
+
+```{r}
+plot(x,y) 
+abline(lm(y~x)) 
+```
+
+A simpel regresion may not be the right thing:
+
+```{r} 
+m = lm(y~x) 
+summary(m) 
+plot(t,y,col='blue') 
+points(t,predict(m),type='l',col = 'red')
+```
+
+The Kalmnan filter can be used as iterative updating the raltion between $x$ and
+$y$. Here the stae varible is the coeficient vector:
+
+$$ y_t = [1 x_t] \beta_t + \nu $$
+$$ \beta_{1+t} = I(1) \beta_t + \epsilon $$
+
+The step function then have to chnged so the $H$ can vary with time:
+
+```{r}
+step = function(Kal, measured, x, control_vector=0){
+  H = matrix(c(1, x),1,2) 
+  with(Kal,{
+    #-----------------Prediction step----------------------------- 
+    predicted_state_estimate = A %*% x_hat + B %*% control_vector 
+    predicted_prob_estimate = (A %*% P_hat) %*% t(A) + Q 
+    #-------------------Observation step--------------------------- 
+    innovation = measured - H %*% predicted_state_estimate 
+    innovation_covariance = H %*% predicted_prob_estimate%*%t(H) + R 
+    #-------------------Updatestep------------------------------- 
+    kalman_gain = predicted_prob_estimate %*% t(H) %*% solve(innovation_covariance) 
+    current_state_estimate = predicted_state_estimate + kalman_gain %*% innovation 
+    current_prob_estimate = (diag(1,2)-kalman_gain %*% H) %*% predicted_prob_estimate 
+    Kal$x_hat = current_state_estimate 
+    Kal$P_hat = current_prob_estimate 
+    return(Kal) 
+  })
+}
+```
+
+And the kaman list is:
+
+```{r}
+Kal = list(A = diag(c(1,1)), 
+           B = matrix(0,2,1), 
+           x_hat = matrix(1,2,1), 
+           P_hat =diag(1,2), 
+           Q = diag(c(0.01,0.01)), 
+           R = matrix(0.1,1,1))
+```
+
+So vi do the iterations:
+
+```{r}
+n=length(x)
+kalman=data.frame(a=rep(NA,n), b=rep(NA,n), y_hat=rep(NA,n))
+for (i in 1:n){ 
+  kalman[i,1:2] = t(Kal$x_hat) 
+  kalman[i,3] = matrix(c(1, x[i]),1,2) %*% Kal$x_hat 
+  Kal = step(Kal,y[i],x[i])
+
+}
+
+```
+
+```{r}
+plot(t,y,col='blue') 
+points(t,predict(m),type='l',col = 'red') 
+points(t,kalman$y_hat,type='l',col='green',lwd=2)
+plot(t,kalman$a, type='l',col='blue')
+points(t,kalman$b, type='l',col='red') 
+abline(h=coef(m)[1],col='red',lty=2) 
+abline(h=coef(m)[2],col='blue',lty=2) 
+abline(h=0,col='grey')
+```
+
+## Libraries
+
+There is different librayes for doing kalman filtering eg KFAS
+Unfortinly y´they use other symbols in the equations and i am not sure I have interpreted evry thing right:
+
+```{r}
+library(KFAS)
+
+Yt = matrix(y,n,1) 
+Zt = array(rbind(rep(1,n),x),c(1,2,n)) # H
+Qt = diag(c(0.01,0.01)) 
+Rt = matrix(1,2,2) 
+Ht = matrix(0.1,1,1) 
+Tt = diag(c(1,1)) 
+km = SSModel(y~ -1 + SSMcustom(Z=Zt, R=Rt, T=Tt, Q=Qt)) 
+```
+
+
+```{r}
+plot(t,y,col='blue') 
+points(t,predict(m),type='l',col = 'red') 
+#points(t,kalman$y_hat,col='green',lwd=2)
+points(t,predict(km),col='green', type='l',lwd=2)
+```
+
+

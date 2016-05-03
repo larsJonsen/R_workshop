@@ -1,0 +1,387 @@
+---
+title: "Demand function herring"
+author: "Lars Ravn-Jonsen"
+date: "28 April 2016"
+output: html_document
+---
+
+## Data
+
+Data from [Arnason et al 2000](#Arnason2000) is updated with [Fiskeridirektoratet2006a, Fiskeridirektoratet2006b](#Fisk) so the time series is now 1982--2005, i.e. 24 observations. Harvest in ton and value in 1.000 DKK. Price is calculate as value divided by landings, hence price is in 1.000 DKK pr. ton or DKK pr. kg. Nominal price is converted to real price with CPI [Statistik2006](#Stat) with base of 2004 and converted to NOK by exchange rate 100DKK=90.9300NOK (1/6 2004). 
+
+```{r}
+setwd("~/Dropbox/Dokumenter/undervisning/R/Sonderborg")
+a = read.csv("pris_sild.csv")
+a$price = a$price*0.9093 #From DKK to NOK
+a
+```
+
+
+## Model
+
+A linear model is used to model the real price:
+$$ p_i=\alpha+\beta h_i+\epsilon_i $$
+where $p_i$ is average real price in DKK pr.kg. (or 1.000 DKK pr ton) of herring in Denmark in year $i$, $h_i$ is the amount of herring in ton landed from Danish fishing vessels in year i and $i=1982,1983,\dots,2005$. This model yields residuals with high autocorrelation, hence the model is attempted corrected with autocorrelation of the AR(1), AR(2). This do however not yield god results and moving average is included in the modeling in the form of the ARMA(0,1), ARMA(1,1), ARMA(0,2), ARMA(1,2) and ARMA(0,3) type:
+
+__model(0,0)__ $\epsilon_{i}$
+  assumed NID$(0,\sigma^{2})$
+ 
+__model(1,0)__ $\epsilon_{i}=\phi\epsilon_{i-1}+\nu_{i}$  where $\nu_{i}$ assumed NID$(0,\sigma^{2})$
+ 
+__model(2,0)__ $\epsilon_{i}=\phi_{1}\epsilon_{i-1}+\phi_{2}\epsilon_{i-2}+\nu_{i}$  where $\nu_{i}$  assumed NID$(0,\sigma^{2})$
+
+__model(0,1)__ $\epsilon_{i}=\theta\nu_{i-1}+\nu_{i}$  where $\nu_{i}$  assumed NID$(0,\sigma^{2})$
+ 
+__model(1,1)__ $\epsilon_{i}=\phi\epsilon_{i-1}+\theta\nu_{i-1}+\nu_{i}$  where $\nu_{i}$  assumed NID$(0,\sigma^{2})$
+ 
+__model(0,2)__ $\epsilon_{i}=\theta_{1}\nu_{i-1}+\theta_{2}\nu_{i-2}+\nu_{i}$  where $\nu_{i}$  assumed NID$(0,\sigma^{2})$
+ 
+__model(1,2)__ $\epsilon_{i}=\phi\epsilon_{i-1}+\theta_{1}\nu_{i-1}+\theta_{2}\nu_{i-2}+\nu_{i}$  where $\nu_{i}$  assumed NID$(0,\sigma^{2})$
+
+__model(0,3)__ $\epsilon_{i}=\theta_{1}\nu_{i-1}+\theta_{2}\nu_{i-2}+\theta_{3}\nu_{i-3}+\nu_{i}$  where $\nu_{i}$  assumed NID$(0,\sigma^{2})$
+ 
+ 
+ 
+```{r}
+library(nlme)
+arma.0.0 = gls( price ~ landing, data=a, method="ML")
+arma.1.0 = gls( price ~ landing, data=a, correlation=corARMA(p=1,q=0),method="ML")
+arma.2.0 = gls( price ~ landing, data=a, correlation=corARMA(p=2,q=0),method="ML")
+arma.3.0 = gls( price ~ landing, data=a, correlation=corARMA(p=3,q=0),method="ML") 
+arma.0.1 = gls( price ~ landing, data=a, correlation=corARMA(p=0,q=1),method="ML")
+arma.1.1 = gls( price ~ landing, data=a, correlation=corARMA(p=1,q=1),method="ML") 
+arma.0.2 = gls( price ~ landing, data=a, correlation=corARMA(p=0,q=2),method="ML") 
+arma.1.2 = gls( price ~ landing, data=a, correlation=corARMA(p=1,q=2),method="ML") 
+arma.0.3 = gls( price ~ landing, data=a, correlation=corARMA(p=0,q=3),method="ML") 
+```
+
+```{r, echo=FALSE}
+phi  =  function(x) { 
+  #function til udtækning af phi ledet i en gls model
+          a  =  coef(x$modelStruct, unconstrained = FALSE)
+          b = NULL
+          d = NULL
+          if(length(a)!=0) {
+          for(i in 1:length(a)) {
+            b  =  c(b,a[[i]])    
+            }
+            for(i in 1:length(a)) {
+            d  =  c(d,paste("Phi",i,sep=""))    
+            }
+            names(b) = d
+            }
+            return(b) 
+       } 
+
+############ ARMA(0,0)
+rp = ts(start=1982,end=2005,a$price)
+h = ts(start=1982,end=2005,a$landing)
+f0 = ts(start=1982,end=2005,fitted(arma.0.0))
+t0 = ts.union(rp=rp,h=h,pre=f0,risd=rp-f0)
+
+############ ARMA(1,0)
+r1 = ts(start=1982,end=2005,a$price-fitted(arma.1.0))
+f1 = ts(start=1982,end=2005,fitted(arma.1.0))
+phi1 = phi(arma.1.0)
+t1 = ts.union(rp=rp,h=h,pre=f1+phi1*lag(r1,-1),risd=rp-(f1+phi1*lag(r1,-1)))
+
+############ ARMA(2,0)
+r2 = ts(start=1982,end=2005,a$price-fitted(arma.2.0))
+f2 = ts(start=1982,end=2005,fitted(arma.2.0))
+phi1 = phi(arma.2.0)[1]
+phi2 = phi(arma.2.0)[2]
+t2 = ts.union(rp=rp,h=h,pre=f2+phi1*lag(r2,-1)+phi2*lag(r2,-2),risd=rp-(f2+phi1*lag(r2,-1)+phi2*lag(r2,-2)))
+
+############ ARMA(3,0)
+r3 = ts(start=1982,end=2005,a$price-fitted(arma.3.0))
+f3 = ts(start=1982,end=2005,fitted(arma.3.0))
+phi1 = phi(arma.3.0)[1]
+phi2 = phi(arma.3.0)[2] 
+phi3 = phi(arma.3.0)[3] 
+t3 = ts.union(rp=rp,h=h,pre=f3+phi1*lag(r3,-1)+phi2*lag(r3,-2)+phi3*lag(r3,-3),risd=rp-(f3+phi1*lag(r3,-1)+phi2*lag(r3,-2)+phi3*lag(r3,-3)))
+
+############ ARMA(0,1)
+r0.1 = ts(start=1982,end=2005,a$price-fitted(arma.0.1))
+f0.1 = ts(start=1982,end=2005,fitted(arma.0.1))
+theta = phi(arma.0.1)
+v0.1 = ts(start=1982,end=2005,NA)
+
+
+St  =  function(a) {
+            v0.1[1] = a
+            for(i in 2:length(v0.1)) {
+                v0.1[i] = r0.1[i]-theta*v0.1[i-1]
+            }
+            return(var(v0.1))
+      }
+
+v0.1[1] = optimize(f = St , interval = c(-1,1))[[1]]
+
+for(i in 2:length(v0.1)) {
+    v0.1[i] = r0.1[i]-theta*v0.1[i-1]
+}
+
+t0.1 = ts.union(rp=rp,h=h,pre=f0.1+theta*lag(v0.1,-1),risd=rp-(f0.1+theta*lag(v0.1,-1)))
+
+############ ARMA(1,1)
+r1.1 = ts(start=1982,end=2005,a$price-fitted(arma.1.1))
+f1.1 = ts(start=1982,end=2005,fitted(arma.1.1))
+phi1 = phi(arma.1.1)[1]
+theta = phi(arma.1.1)[2]
+v1.1 = ts(start=1982,end=2005,NA)
+
+
+St  =  function(a) {
+            v1.1[1] = a
+            for(i in 2:length(v1.1)) {
+                v1.1[i] = r1.1[i]-phi1*r1.1[i-1]-theta*v1.1[i-1]
+                }
+               return(var(v1.1))
+      }
+
+v1.1[1] = optimize(f = St , interval = c(-1,1))[[1]]
+for(i in 2:length(v1.1)) {
+    v1.1[i] = r1.1[i]-phi1*r1.1[i-1]-theta*v1.1[i-1]
+}
+
+t1.1 = ts.union(rp=rp,h=h,pre=f1.1+theta*lag(v1.1,-1)+phi1*lag(r1.1,-1),risd=rp-(f1.1+theta*lag(v1.1,-1)+phi1*lag(r1.1,-1)))
+
+############ ARMA(0,2)
+r0.2 = ts(start=1982,end=2005,a$price-fitted(arma.0.2))
+f0.2 = ts(start=1982,end=2005,fitted(arma.0.2))
+theta1 = phi(arma.0.2)[1]
+theta2 = phi(arma.0.2)[2]
+v0.2 = ts(start=1982,end=2005,NA)
+
+St  =  function(a) {
+            v0.2[1] = a[1]
+            v0.2[2] = a[2]
+            for(i in 3:length(v0.2)) {
+                v0.2[i] = r0.2[i]-theta1*v0.2[i-1]-theta2*v0.2[i-2]
+                }
+               return(var(v0.2))
+      }
+
+v0.2[1:2] = optim(c(1,1), St )$par
+for(i in 3:length(v0.2)) {
+                v0.2[i] = r0.2[i]-theta1*v0.2[i-1]-theta2*v0.2[i-2]
+                }
+
+t0.2 = ts.union(rp=rp,h=h,pre=f0.2+theta1*lag(v0.2,-1)+theta2*lag(v0.2,-2),
+    risd=rp-(f0.2+theta1*lag(v0.2,-1)+theta2*lag(v0.2,-2)))
+
+############ ARMA(1,2)
+r1.2 = ts(start=1982,end=2005,a$price-fitted(arma.1.2))
+f1.2 = ts(start=1982,end=2005,fitted(arma.1.2))
+phi1  =  phi(arma.1.2)[1]
+theta1 = phi(arma.1.2)[2]
+theta2 = phi(arma.1.2)[3]
+v1.2 = ts(start=1982,end=2005,NA)
+
+St  =  function(a) {
+            v1.2[1] = a[1]
+            v1.2[2] = a[2]
+            for(i in 3:length(v1.2)) {
+                v1.2[i] = r1.2[i]-phi1*r1.2[i-1]-theta1*v1.2[i-1]-theta2*v1.2[i-2]
+                }
+               return(var(v1.2))
+      }
+
+v1.2[1:2] = optim(c(1,1), St )$par
+for(i in 3:length(v1.2)) {
+                v1.2[i] = r1.2[i]-theta1*v1.2[i-1]-theta2*v1.2[i-2]
+                }
+
+t1.2 = ts.union(rp=rp,h=h,pre=f1.2+phi1*lag(r1.2,-1)+theta1*lag(v1.2,-1)+theta2*lag(v1.2,-2),
+    risd=rp-(f1.2+phi1*lag(r1.2,-1)+theta1*lag(v1.2,-1)+theta2*lag(v1.2,-2)))
+
+############ ARMA(0,3)
+r0.3 = ts(start=1982,end=2005,a$price-fitted(arma.0.3))
+f0.3 = ts(start=1982,end=2005,fitted(arma.0.3))
+theta1 = phi(arma.0.3)[1]
+theta2 = phi(arma.0.3)[2]
+theta3 = phi(arma.0.3)[3]
+v0.3 = ts(start=1982,end=2005,NA)
+
+St  =  function(a) {
+            v0.3[1] = a[1]
+            v0.3[2] = a[2]
+            v0.3[3] = a[3]
+            for(i in 4:length(v0.3)) {
+                v0.3[i] = r0.3[i]-theta1*v0.3[i-1]-theta2*v0.3[i-2]-theta3*v0.3[i-3]
+                }
+               return(var(v0.3))
+      }
+
+v0.3[1:3] = optim(c(1,1,1), St )$par
+for(i in 4:length(v0.3)) {
+                v0.3[i] = r0.3[i]-theta1*v0.3[i-1]-theta2*v0.3[i-2]-theta3*v0.3[i-3]
+                }
+
+t0.3 = ts.union(rp=rp,h=h,pre=f0.3+theta1*lag(v0.3,-1)+theta2*lag(v0.3,-2)+theta3*lag(v0.3,-3),
+    risd=rp-(f0.3+theta1*lag(v0.3,-1)+theta2*lag(v0.3,-2)+theta3*lag(v0.3,-3)))
+```
+
+```{r, echo=FALSE}
+dw = function(e){ #lag 1
+    a = 0
+    for(t in 2:length(e)) {
+        a = a+(e[t]-e[t-1])^2
+    }
+    return(a/sum(e^2))
+}
+
+
+dw2 = function(e){ #lag 2
+    a = 0
+    for(t in 3:length(e)) {
+        a = a+(e[t]-e[t-2])^2
+    }
+    return(a/sum(e^2))
+}
+
+
+
+dw3 = function(e){ #lag 3
+    a = 0
+    for(t in 4:length(e)) {
+        a = a+(e[t]-e[t-3])^2
+    }
+    return(a/sum(e^2))
+}
+
+dw4 = function(e){ #lag 4
+    a = 0
+    for(t in 5:length(e)) {
+        a = a+(e[t]-e[t-4])^2
+    }
+    return(a/sum(e^2))
+}
+
+pn  =  function(x,d=4){
+    round(x,d)
+    }
+
+pri = function(a) {
+    c(Par=pn(length(c(summary(a)$coefficients,phi(a)))),
+    LogLik=pn(a$logLik))
+}
+
+rse  =  function(x) { #Residual standard error
+        return(sqrt(sum(x^2)/length(x)))
+        }
+
+
+lagg = function(a){
+    c("Sigma"=pn(rse(a)),
+    "Lag 1"=pn(dw(a)),
+    "Lag 2"=pn(dw2(a)),
+    "Lag 3"=pn(dw3(a)),
+    "Lag 4"=pn(dw4(a)))
+    }
+```
+
+```{r, echo=FALSE}
+rbind("Model (0,0)"=c(pri(arma.0.0),lagg(t0[ ,4])),
+     "Model (1,0)"=c(pri(arma.1.0),lagg(t1[-1,4])),
+     "Model (0,1)"=c(pri(arma.0.1),lagg(t0.1[-1,4])),
+     "Model (2,0)"=c(pri(arma.2.0),lagg(t2[-(1:2),4])),
+     "Model (1,1)"=c(pri(arma.1.1),lagg(t1.1[-1,4])),
+     "Model (0,2)"=c(pri(arma.0.2),lagg(t0.2[-(1:2),4])),
+     "Model (1,2)"=c(pri(arma.1.2),lagg(t1.2[-(1:2),4])),
+     "Model (0,3)"=c(pri(arma.0.3),lagg(t0.3[-(1:3),4])))
+```
+
+Model (0,0) show autocorrelation for lag 1 and lag 2. In improving this model with one more parameter the model (0,1), in compar with model (1,0), shows the highest likelihood and the smallest $\sigma$. However the model (0,1) still have autocorrelation and the model (1,0) have a negative autocorrelation for lag 2. Improvement of model (1,0) with one more autocorrelation term do not seem to yield a good result. When improving model (0,1) with one more parameter, model (0,2) shows a higher likelihood and lower $\sigma$  than model (1,1), all Durbin-Watson statistics is better for model (0,2) too, hence model (0,2) is preferred for the models with 4 parameters. 
+
+There seems to be no gain in adding one more parameter, the best model here is model (0,3), and her the likelihood is only slightly improved. Model (0,2) is accepted as final model.
+
+Parameter estimates for the model (0,2) is:
+
+```{r}
+zz = summary(arma.0.2)$tTable
+```
+
+| Parameter	| Estimate | Std.error | t-value | p-value |
+|-----------|----------|-----------|---------|---------|
+|$\theta_{1}$|`r format(phi(arma.0.2)[1],digit=4,nsmall=4)`| | | |
+|$\theta_{2}$|`r format(phi(arma.0.2)[2],digit=4,nsmall=4)`|
+|$\alpha$|`r format(zz[1,1],digit=4,nsmall=4)`|`r format(zz[1,2],digit=4)`|`r prettyNum(zz[1,3],digit=4,nsmall=2)`|`r format(zz[1,4],digit=4)`|
+|$\beta$ | `r format(zz[2,1],digit=4,nsmall=4)` | `r format(zz[2,2],digit=4)` | `r prettyNum(zz[2,3],digit=4,nsmall=2)` | `r format(zz[2,4],digit=4)` |
+
+Both parrameters is very significant.
+
+## Conclusion
+
+The price in the future (for time $t+1$) can be predicted by 
+
+$$E(p_{t+1})=\alpha+\beta h_{t+1}+\theta_{1}\nu_{t}+\theta_{2}\nu_{t-1}$$
+ 
+Where the parameters $\left(\alpha,\beta,\theta_{1},\theta_{2}\right)$ = (`r format(zz[1,1],digit=4,nsmall=4)`, `r format(zz[2,1],digit=4,nsmall=4)`, `r format(phi(arma.0.2)[1],digit=4,nsmall=4)`, `r format(phi(arma.0.2)[2],digit=4,nsmall=4)`). The formula for the expected price for next year $E(p_{t+1})$ consist of three parts: The first, $\alpha+\beta h_{t+1}$ is a linear function of next years harvest $h_{t+1}$, the next $\theta_{1}\nu_{t}$  is a correction probational to this years error term $\nu_{t}$  and the last, $\theta_{2}\nu_{t-1}$  is a correction probational to last years error term $\nu_{t-1}$. The $\nu_{i}$'s needed for making prediction is estimated (so that $var(\nu)$  is minimize), and are given in the text file price_herring.txt. 
+
+```{r}
+a$nu = v0.2
+write.table(a, file = "price_herring.txt")
+```
+
+## Refferences
+
+<a name ="Arnason2000"></a> Arnason, R., L. K. Sandal, S.I. Steinshamn, N. Vestergaard, S. Argansson and F. Jensen (2000). Comparative evaluation of the cod and herring fisheries in denmark, iceland and norway. I: TemaNord 2000:526. Nordisk Ministerr ̊ad.
+
+<a name ="Stat"></a>Danmarks Statistik (2006). PRIS8: Forbrugerprisindeks,  ̊arsgennemsnit (1900=100). Danmarks Statistik. http://www.statistikbanken.dk
+
+<a name ="Fisk"></a>Fiskeridirektoratet (2006a). Danske fiskeres fangster fra samtlige farvande fordelt p ̊a arter 1996-2005, Hel fisk i ton. Fiskeridirektoratet. Quoted 20/6 2006. http://webfd.fd.dk/stat/Faste%20tabeller/Landinger-10aar/tab74b.html
+
+Fiskeridirektoratet (2006b). Danske fiskeres fangster fra samtlige far- vande fordelt p ̊a arter 1996-2005, Værdi i 1.000 kr.. Fiskeridirek- toratet. Quoted 20/6 2006. http://webfd.fd.dk/stat/Faste%20tabeller/Landinger-10aar/tab74b.html
+
+
+
+
+## Appendix
+
+Figures of data and model predictions 
+
+```{r, echo=FALSE}
+par(mfcol=c(4,1),mar = c(0, 5.1, 0, 2.1))
+##############
+ 
+plot(t0[ ,c(1,3)],plot.type="single",type="b",col=c(2,3),pch=c(20,22),ylab="Price")
+legend(1990,3.7, c("Data", "Model (0,0)"),lty=1,col=2:3,pch=c(20,22),merge = T,bty="n")
+
+plot(t1[ ,c(1,3)],plot.type="single",type="b",col=c(2,3),pch=c(20,22),ylab="Price")
+legend(1990,3.7, c("Data", "Model (1,0)"),lty=1,col=2:3,pch=c(20,22),merge = T,bty="n")
+
+plot(t2[ ,c(1,3)],plot.type="single",type="b",col=c(2,3),pch=c(20,22),ylab="Price")
+legend(1990,3.7, c("Data", "Model (2,0)"),lty=1,col=2:3,pch=c(20,22),merge = T,bty="n")
+
+plot(t0.1[ ,c(1,3)],plot.type="single",type="b",col=c(2,3),pch=c(20,22),ylab="Price")
+legend(1990,3.7, c("Data", "Model (0,1)"),lty=1,col=2:3,pch=c(20,22),merge = T,bty="n")
+
+```
+
+Figures of data and model predictions
+
+```{r, echo=FALSE}
+par(mfcol=c(4,1),mar = c(0, 5.1, 0, 2.1))
+##############
+
+plot(t0.2[ ,c(1,3)],plot.type="single",type="b",col=c(2,3),pch=c(20,22),ylab="Price")
+legend(1990,3.7, c("Data", "Model (0,2)"),lty=1,col=2:3,pch=c(20,22),merge = T,bty="n")
+
+plot(t1.1[ ,c(1,3)],plot.type="single",type="b",col=c(2,3),pch=c(20,22),ylab="Price")
+legend(1990,3.7, c("Data", "Model (1,1)"),lty=1,col=2:3,pch=c(20,22),merge = T,bty="n")
+
+plot(t1.2[ ,c(1,3)],plot.type="single",type="b",col=c(2,3),pch=c(20,22),ylab="Price")
+legend(1990,3.7, c("Data", "Model (1,2)"),lty=1,col=2:3,pch=c(20,22),merge = T,bty="n")
+
+plot(t0.3[ ,c(1,3)],plot.type="single",type="b",col=c(2,3),pch=c(20,22),ylab="Price")
+legend(1990,3.7, c("Data", "Model (0,3)"),lty=1,col=2:3,pch=c(20,22),merge = T,bty="n")
+
+```
+
+Summary of model (0,2):
+
+```{r}
+summary(arma.0.2)
+```
+
