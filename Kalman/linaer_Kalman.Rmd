@@ -1,6 +1,6 @@
 # Implements a linear Kalman filter.
 
-$$ x_{t+1} = Ax_t + \epsilon_t $$ $$ y_t = x_t H + \nu_t $$ $$ \epsilon ~ N(0,Q)
+$$ x_{t+1} = Ax_t + \epsilon_t $$ $$ y_t = H  x_t+ \nu_t $$ $$ \epsilon ~ N(0,Q)
 $$ $$ \nu ~ N(0,R) $$
 
 ## Staionery
