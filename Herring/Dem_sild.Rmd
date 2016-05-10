@@ -10,7 +10,7 @@ output: html_document
 Data from [Arnason et al 2000](#Arnason2000) is updated with [Fiskeridirektoratet2006a, Fiskeridirektoratet2006b](#Fisk) so the time series is now 1982--2005, i.e. 24 observations. Harvest in ton and value in 1.000 DKK. Price is calculate as value divided by landings, hence price is in 1.000 DKK pr. ton or DKK pr. kg. Nominal price is converted to real price with CPI [Statistik2006](#Stat) with base of 2004 and converted to NOK by exchange rate 100DKK=90.9300NOK (1/6 2004). 
 
 ```{r}
-setwd("~/Dropbox/Dokumenter/undervisning/R/Sonderborg")
+setwd("~/Git/R_workshop/Herring")
 a = read.csv("pris_sild.csv")
 a$price = a$price*0.9093 #From DKK to NOK
 a
